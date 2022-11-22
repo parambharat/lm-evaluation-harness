@@ -41,6 +41,7 @@ def parse_args():
     parser.add_argument("--description_dict_path", default=None)
     parser.add_argument("--check_integrity", action="store_true")
     parser.add_argument("--wandb_project", default=None, type=str)
+    parser.add_argument("--wandb_entity", default=None, type=str)
 
     return parser.parse_args()
 

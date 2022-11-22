@@ -1,16 +1,22 @@
-from collections import defaultdict
+try:
+    import wandb
 
-import textwrap
-import wandb
-from pytablewriter import MarkdownTableWriter
+    WANDB_AVAILABLE = True
+except:
+    WANDB_AVAILABLE = False
 
-wandb.require("report-editing:v0")
-import wandb.apis.reports as wr
-from lm_eval import utils, tasks
-import json
-from datetime import datetime
+if WANDB_AVAILABLE:
+    from collections import defaultdict
 
-import inspect
+    from pytablewriter import MarkdownTableWriter
+
+    wandb.require("report-editing:v0")
+    import wandb.apis.reports as wr
+    from lm_eval import utils, tasks
+    import json
+    from datetime import datetime
+    import shortuuid
+    import inspect
 
 
 def get_task_description(task):
@@ -20,30 +26,29 @@ def get_task_description(task):
     return task_doc, task_citation
 
 
-def log_results(results, name):
-    if wandb.run is not None:
-        _run = wandb.run
-        result_dict = results.copy()
-        wandb.config.update(result_dict["config"])
-        fewshot = result_dict["config"]["num_fewshot"]
-        task_results = defaultdict(lambda: defaultdict(list))
-        columns = ["Task", "Version", "num_fewshot", "Metric", "Value", "Stderr"]
-        values = []
-        for k, dic in result_dict["results"].items():
-            version = result_dict["versions"][k]
-            for m, v in dic.items():
-                if m.endswith("_stderr"):
-                    continue
-                if m + "_stderr" in dic:
-                    se = dic[m + "_stderr"]
-                    values.append([k, version, fewshot, m, v, se])
-                    task_results[k][m].extend(["%.4f" % v, "%.4f" % se])
-                else:
-                    values.append([k, version, fewshot, m, v, None])
-                    task_results[k][m].extend(["%.4f" % v, ""])
-        results_table = wandb.Table(columns=columns, data=values)
-        _run.log({name: results_table})
-        return task_results
+def log_results(run, results):
+    name = run.name
+    result_dict = results.copy()
+    wandb.config.update(result_dict["config"])
+    fewshot = result_dict["config"]["num_fewshot"]
+    task_results = defaultdict(lambda: defaultdict(list))
+    columns = ["Task", "Version", "num_fewshot", "Metric", "Value", "Stderr"]
+    values = []
+    for k, dic in result_dict["results"].items():
+        version = result_dict["versions"][k]
+        for m, v in dic.items():
+            if m.endswith("_stderr"):
+                continue
+            if m + "_stderr" in dic:
+                se = dic[m + "_stderr"]
+                values.append([k, version, fewshot, m, v, se])
+                task_results[k][m].extend(["%.4f" % v, "%.4f" % se])
+            else:
+                values.append([k, version, fewshot, m, v, None])
+                task_results[k][m].extend(["%.4f" % v, ""])
+    results_table = wandb.Table(columns=columns, data=values)
+    run.log({name: results_table})
+    return task_results
 
 
 def write_metric_table(metrics):
@@ -89,17 +94,31 @@ def get_model_name_from_args(args):
 def report_evaluation(
     args, results, results_md,
 ):
-    run = wandb.init(
-        project=args.wandb_project, entity=wandb.apis.PublicApi().default_entity
-    )
+    if not WANDB_AVAILABLE:
+        return
+    if args.wandb_project is None:
+        return
+    else:
+        wandb_project = args.wandb_project
+    if wandb.run is None:
+        wandb_entity = (
+            args.wandb_entity
+            if args.wandb_entity is not None
+            else wandb.apis.PublicApi().default_entity
+        )
+        run = wandb.init(project=wandb_project, entity=wandb_entity)
+    else:
+        run = wandb.run
+        wandb_project = run.project
+        wandb_entity = run.entity
 
-    task_results = log_results(results, run.name)
+    task_results = log_results(run, results,)
     tasks_report = create_report_by_task(task_results)
     model_name = get_model_name_from_args(args)
     report = wr.Report(
-        project=args.wandb_project,
-        entity=wandb.apis.PublicApi().default_entity,
-        title=f"Evaluation Report for {model_name}",
+        project=wandb_project,
+        entity=wandb_entity,
+        title=f"#{shortuuid.ShortUUID().random(length=5)}# Evaluation Report for {model_name}",
         description=f"Evaluation run on : {datetime.utcnow()}",
     )
 
@@ -114,14 +133,12 @@ def report_evaluation(
         + [
             wr.H1("Evaluation Runs"),
             wr.WeaveTableBlock(
-                project=args.wandb_project,
-                entity=wandb.apis.PublicApi().default_entity,
-                table_name=f"{run.name}",
+                project=wandb_project, entity=wandb_entity, table_name=f"{run.name}",
             ),
             wr.PanelGrid(
                 runsets=[
                     wr.Runset(
-                        project=args.wandb_project, entity=run.entity,
+                        project=wandb_project, entity=wandb_entity,
                     ).set_filters_with_python_expr(f'Name == "{str(run.name)}"'),
                 ]
             ),
