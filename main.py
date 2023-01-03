@@ -3,7 +3,8 @@ import json
 import logging
 import fnmatch
 
-from lm_eval import tasks, evaluator, wandb_reporter
+from lm_eval import tasks, evaluator
+import wandb_reporter
 
 logging.getLogger("openai").setLevel(logging.WARNING)
 
